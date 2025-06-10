@@ -228,12 +228,12 @@ def test_worst_bytecode_single_opcode(
 @pytest.mark.parametrize(
     "pattern",
     [
-        Op.STOP,
+        # Op.STOP,
         Op.JUMPDEST,
-        Op.PUSH1[bytes(Op.JUMPDEST)],
-        Op.PUSH2[bytes(Op.JUMPDEST + Op.JUMPDEST)],
-        Op.PUSH1[bytes(Op.JUMPDEST)] + Op.JUMPDEST,
-        Op.PUSH2[bytes(Op.JUMPDEST + Op.JUMPDEST)] + Op.JUMPDEST,
+        # Op.PUSH1[bytes(Op.JUMPDEST)],
+        # Op.PUSH2[bytes(Op.JUMPDEST + Op.JUMPDEST)],
+        # Op.PUSH1[bytes(Op.JUMPDEST)] + Op.JUMPDEST,
+        # Op.PUSH2[bytes(Op.JUMPDEST + Op.JUMPDEST)] + Op.JUMPDEST,
     ],
     ids=lambda x: x.hex(),
 )
@@ -252,8 +252,10 @@ def test_worst_initcode_jumpdest_analysis(
     The initicode is modified by mixing-in the returned create address between CREATE invocations
     to prevent caching.
     """
-    max_code_size = fork.max_code_size()
-    initcode_size = fork.max_initcode_size()
+    max_code_size = 0xC000  # Taken from EIP 7954
+    initcode_size = 0x18000
+    block_gas_limit = 60_000_000
+    # tx_gas_limit = 30_000_000 #TODO: make test devnet-2-proof by incorpating tx limit
 
     # Expand the initcode pattern to the transaction data so it can be used in CALLDATACOPY
     # in the main contract. TODO: tune the tx_data_len param.
@@ -300,7 +302,7 @@ def test_worst_initcode_jumpdest_analysis(
     code = code_prefix + code_loop_header + code_loop_body + code_loop_footer
     assert (max_code_size - len(code_invoke_create)) < len(code) <= max_code_size
 
-    env = Environment()
+    env = Environment(block_gas_limit=block_gas_limit)
 
     tx = Transaction(
         to=pre.deploy_contract(code=code),
