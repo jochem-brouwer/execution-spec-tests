@@ -25,6 +25,7 @@ from ethereum_test_tools import (
     compute_create2_address,
     compute_create_address,
 )
+from ethereum_test_tools.code.generators import Initcode
 from ethereum_test_tools.vm.opcode import Opcodes as Op
 
 REFERENCE_SPEC_GIT_PATH = "TODO"
@@ -710,8 +711,7 @@ def test_worst_selfdestruct_initcode(
 
 @pytest.mark.valid_from("Cancun")
 def test_create_sstore_xen(
-    # blockchain_test: BlockchainTestFiller,
-    state_test: StateTestFiller,
+    blockchain_test: BlockchainTestFiller,
     pre: Alloc,
 ):
     """
@@ -719,7 +719,7 @@ def test_create_sstore_xen(
     Consumes the block gas limit.
     """
 
-    sstore_count = 10
+    sstore_count = 1
     bytecode_size = 34  # Bytecode size of contract to deploy.
 
     # The ADDRESS is stored in the code, which is by MSTORE right aligned
@@ -748,30 +748,24 @@ def test_create_sstore_xen(
         + While(body=loop, condition=Op.GT(Op.GAS, Op.DUP1))
     )
 
-    attack_address = pre.deploy_contract(attack_contract)
-
+    setup_contract = Initcode(deploy_code=attack_contract)
     env = Environment()
 
     sender = pre.fund_eoa()
 
+    deploy_tx = Transaction(to=None, data=setup_contract, sender=sender, gas_limit=1_000_000)
     attack_tx = Transaction(
-        gas_limit=30_000_000,
-        to=attack_address,
-        sender=sender,
+        gas_limit=1_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode
     )
 
-    # re_poke_tstore_tx = Transaction(gas_limit=100000, to=account, sender=sender)
+    txs = [deploy_tx, attack_tx]
 
-    txs = [attack_tx]  # , re_poke_tstore_tx]
+    post = {}
 
-    post = {
-        # account: Account(storage={0x01: 0x00}),
-    }
-
-    # blockchain_test(genesis_environment=env, pre=pre, post=post, blocks=[Block(txs=txs)])
-    state_test(
-        env=env,
-        pre=pre,
-        post=post,
-        tx=attack_tx,
-    )
+    blockchain_test(genesis_environment=env, pre=pre, post=post, blocks=[Block(txs=txs)])
+    # state_test(
+    #    env=env,
+    #    pre=pre,
+    #    post=post,
+    #    tx=attack_tx,
+    # )
