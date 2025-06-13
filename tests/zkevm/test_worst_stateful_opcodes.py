@@ -719,7 +719,7 @@ def test_create_sstore_xen(
     Consumes the block gas limit.
     """
 
-    sstore_count = 1
+    sstore_count = 10
     bytecode_size = 34  # Bytecode size of contract to deploy.
 
     # The ADDRESS is stored in the code, which is by MSTORE right aligned
@@ -732,10 +732,8 @@ def test_create_sstore_xen(
     deposit_code = Op.MSTORE(Op.PUSH0, Op.ADDRESS) + Op.RETURN(0, bytecode_size)
     initcode = sstore_code + deposit_code
 
-    target = pre.deploy_contract(initcode)
-
-    setup_memory = Op.EXTCODECOPY(target, Op.PUSH0, Op.PUSH0, Op.EXTCODESIZE(target))
-    loop = Op.POP(Op.CREATE(Op.PUSH0, Op.PUSH0, Op.EXTCODESIZE(target)))
+    setup_memory = Op.CALLDATACOPY(Op.PUSH0, Op.PUSH0, Op.CALLDATASIZE)
+    loop = Op.POP(Op.CREATE(Op.PUSH0, Op.PUSH0, Op.CALLDATASIZE))
 
     attack_contract = (
         setup_memory
@@ -753,9 +751,16 @@ def test_create_sstore_xen(
 
     sender = pre.fund_eoa()
 
-    deploy_tx = Transaction(to=None, data=setup_contract, sender=sender, gas_limit=1_000_000)
+    deploy_tx = Transaction(
+        to=None,
+        data=setup_contract,
+        gas_limit=1_000_000,
+        type=0,
+        protected=False,
+        gas_price=100_000_000_000,
+    )
     attack_tx = Transaction(
-        gas_limit=1_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode
+        gas_limit=1_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode, nonce=1
     )
 
     txs = [deploy_tx, attack_tx]
