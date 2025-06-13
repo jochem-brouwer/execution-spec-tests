@@ -706,3 +706,72 @@ def test_worst_selfdestruct_initcode(
         post=post,
         tx=code_tx,
     )
+
+
+@pytest.mark.valid_from("Cancun")
+def test_create_sstore_xen(
+    # blockchain_test: BlockchainTestFiller,
+    state_test: StateTestFiller,
+    pre: Alloc,
+):
+    """
+    Creates a tower of contracts which SSTORE values inside this contract.
+    Consumes the block gas limit.
+    """
+
+    sstore_count = 10
+    bytecode_size = 34  # Bytecode size of contract to deploy.
+
+    # The ADDRESS is stored in the code, which is by MSTORE right aligned
+    # To fit this in the code (it is left padded with 0s / STOPs) assert
+    # the code is at least 32 bytes
+    assert bytecode_size >= 32
+
+    # This code creates different storage tries for every contract
+    sstore_code = Op.SSTORE(Op.GAS, Op.GAS) * sstore_count
+    deposit_code = Op.MSTORE(Op.PUSH0, Op.ADDRESS) + Op.RETURN(0, bytecode_size)
+    initcode = sstore_code + deposit_code
+
+    target = pre.deploy_contract(initcode)
+
+    setup_memory = Op.EXTCODECOPY(target, Op.PUSH0, Op.PUSH0, Op.EXTCODESIZE(target))
+    loop = Op.POP(Op.CREATE(Op.PUSH0, Op.PUSH0, Op.EXTCODESIZE(target)))
+
+    attack_contract = (
+        setup_memory
+        + loop
+        + Op.GAS
+        + loop
+        + Op.GAS
+        + Op.SWAP1
+        + Op.SUB
+        + While(body=loop, condition=Op.GT(Op.GAS, Op.DUP1))
+    )
+
+    attack_address = pre.deploy_contract(attack_contract)
+
+    env = Environment()
+
+    sender = pre.fund_eoa()
+
+    attack_tx = Transaction(
+        gas_limit=30_000_000,
+        to=attack_address,
+        sender=sender,
+    )
+
+    # re_poke_tstore_tx = Transaction(gas_limit=100000, to=account, sender=sender)
+
+    txs = [attack_tx]  # , re_poke_tstore_tx]
+
+    post = {
+        # account: Account(storage={0x01: 0x00}),
+    }
+
+    # blockchain_test(genesis_environment=env, pre=pre, post=post, blocks=[Block(txs=txs)])
+    state_test(
+        env=env,
+        pre=pre,
+        post=post,
+        tx=attack_tx,
+    )
