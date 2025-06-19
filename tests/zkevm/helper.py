@@ -18,11 +18,15 @@ from ethereum_test_tools.code.generators import Initcode
 from ethereum_test_tools.vm.opcode import Opcodes as Op
 
 root_deployer = "0x7e7eeb315827261eedb8e1504b6d806069a1a2ba"
-current_root_nonce = 101
+current_root_nonce = 139
 to_deploy = 13
-
 limit = 0x6000
 targets = 12500
+
+# TO TEST
+# to_deploy = 2
+# limit = 200  # 0x6000
+# targets = 20
 
 # PREPEND THIS WITH STATICCALL ROOT CONTRACT
 children_contracts = []
@@ -43,7 +47,7 @@ factory = "0x57603B698AFc4983F1201e6718BBFB2e7b2b4fFF"
 # Nonce = 6697 so 6696 contracts
 # factory = "0x2d6d1910F67B4542dB22d8D5cc578E72aAE912eD"
 
-TARGET_OPCODE = "EXTCODESIZE"
+TARGET_OPCODE = "EXTCODECOPY"
 COPY_BYTE = 0x6000 - 1
 
 if factory == "0x2d6d1910F67B4542dB22d8D5cc578E72aAE912eD":
@@ -159,6 +163,7 @@ while current_index < len(contracts):
     print("current index", attack_data[0])
     print("codes deployed", attack_data[1])
     initcodes.append(Initcode(deploy_code=attack_data[2]).hex())
+    print(attack_data[2].hex())
     ctrs += 1
 
 with open("hex_data.json", "w") as f:
