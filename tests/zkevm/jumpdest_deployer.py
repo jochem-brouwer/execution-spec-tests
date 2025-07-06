@@ -18,6 +18,7 @@ from ethereum_test_tools import (
     compute_create2_address,
     compute_create_address,
 )
+from ethereum_test_tools import Macros as Om
 from ethereum_test_tools.code.generators import Initcode
 from ethereum_test_tools.vm.opcode import Opcodes as Op
 
@@ -32,17 +33,20 @@ def test_bytecode_read_bench(
     Creates a tower of contracts which SSTORE values inside this contract.
     Consumes the block gas limit.
     """
+
+    target_size = 0x3000
+
     code = (
         # Copy CALLDATA to memory
         Op.CALLDATACOPY(destoffset=Op.PUSH0, offset=Op.PUSH0, size=Op.CALLDATASIZE)
         # Hash this for the initcode salt (this will be SLOADed to retrieve the actual salt)
         + Op.SHA3(offset=Op.PUSH0, size=Op.CALLDATASIZE)
         + Op.DUP1
-        + Op.SLOAD()
+        + Op.SLOAD
         #
         + Op.CREATE2(value=Op.CALLVALUE, offset=Op.PUSH0, size=Op.CALLDATASIZE, salt=Op.DUP1)
         # If ISZERO jump to PC 0 (is not JUMPDEST so invalidates the tx)
-        + Op.JUMPI(pc=Op.PUSH0, condition=Op.ISZERO())
+        + Op.JUMPI(pc=Op.PUSH0, condition=Op.ISZERO)
         # Add one to salt
         + Op.PUSH1(1)
         + Op.ADD
@@ -56,37 +60,87 @@ def test_bytecode_read_bench(
 
     sender = pre.fund_eoa()
 
+    initcode = (
+        Op.PUSH32(
+            Op.JUMP(Op.SUB(Op.CODESIZE, Op.PUSH1(1)))
+            .__bytes__()
+            .ljust(12, Op.JUMPDEST.__bytes__())
+            .ljust(32, b"\x00")
+        )
+        + Op.ADDRESS
+        + Op.OR
+        + Op.PUSH0
+        + Op.MSTORE
+        + Op.MSTORE(Op.PUSH1(32), Op.PUSH32(Op.JUMPDEST.__bytes__() * 32))
+    )
+
+    msize = 64
+    current_target = 64
+    offset = 32
+    current_size = 32
+
+    while msize < target_size:
+        next_target = current_target + current_size
+        if next_target > target_size:
+            current_size -= next_target - target_size
+        initcode += Op.MCOPY(current_target, offset, current_size)
+        msize = current_target + current_size
+        current_target = current_target + current_size
+        current_size = current_size * 2
+
+    initcode += Op.RETURN(Op.PUSH0, target_size)
+
+    deployment_code = Op.POP(Op.CREATE(value=Op.PUSH0, offset=Op.PUSH0, size=len(initcode)))
+
+    factory_code = (
+        Om.MSTORE(initcode)
+        + Op.GAS
+        + deployment_code
+        + Op.GAS
+        + Op.SWAP1
+        + Op.SUB
+        + While(body=deployment_code, condition=Op.GT(Op.GAS, Op.DUP1))
+    )
+
     deploy_tx = Transaction(
         to=None,
-        data=setup_contract,
+        data=Initcode(deploy_code=factory_code),
         gas_limit=22_000_000,
         type=0,
         protected=False,
         gas_price=100_000_000_000,
     )
 
-    runtime_code = (
-        (
-            Op.JUMP(Op.SUB(Op.CODESIZE, Op.PUSH1(1)))
-            .__bytes__()
-            .rjust(12, Op.JUMPDEST.__bytes__())
-            .rjust(32, b"\x00")
-        )
-        + Op.ADDRESS
-        + Op.OR
+    call_tx = Transaction(
+        to=deploy_tx.created_contract,
+        data="",
+        gas_limit=30_000_000,
+        type=0,
+        protected=False,
+        gas_price=100_000_000_000,
+        nonce=1,
     )
 
-    initcode = Op.MSTORE(Op.PUSH0, Op.PUSH32(runtime_code.__bytes__())) + Op.MSTORE(
-        Op.PUSH1(32), Op.PUSH32(bytes([0x5B] * 32))
+    call_ctr = Transaction(
+        to=compute_create_address(address=deploy_tx.created_contract, nonce=1),
+        gas_limit=30_000_000,
+        type=0,
+        protected=False,
+        gas_price=100_000_000_000,
+        nonce=2,
     )
 
-    deploy_contract_1 = Transaction(
-        gas_limit=30_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode, nonce=1
-    )
+    # initcode = Op.MSTORE(Op.PUSH0, Op.PUSH32(runtime_code.__bytes__())) + Op.MSTORE(
+    ##    Op.PUSH1(32), Op.PUSH32(bytes([0x5B] * 32))
+    # )
 
-    deploy_contract_2 = Transaction(
-        gas_limit=30_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode, nonce=1
-    )
+    # deploy_contract_1 = Transaction(
+    #    gas_limit=30_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode, nonce=1
+    # )
+
+    # deploy_contract_2 = Transaction(
+    #    gas_limit=30_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode, nonce=1
+    # )
 
     post = {}
 
@@ -95,9 +149,9 @@ def test_bytecode_read_bench(
         pre=pre,
         post=post,
         blocks=[
-            Block(txs=[deploy_tx]),
-            Block(txs=[deploy_contract_1]),
-            Block(txs=[deploy_contract_2]),
+            Block(txs=[deploy_tx, call_tx, call_ctr]),
+            # Block(txs=[deploy_contract_1]),
+            # Block(txs=[deploy_contract_2]),
         ],
     )
     # state_test(
@@ -154,7 +208,7 @@ def test_create_factory(
 
     print(deploy_tx.sender)
 
-    initcode = Op.RETURN(Op.PUSH0, Op.PUSH1(10))
+    initcode = Op.INVALID
 
     deploy_contract_1 = Transaction(
         gas_limit=30_000_000, to=deploy_tx.created_contract, sender=sender, data=initcode, nonce=1
